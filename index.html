@@ -59,7 +59,9 @@ const Brands=(()=>{
  const ras=im=>{const w=im.naturalWidth||300,h=im.naturalHeight||300,[c,x]=mk(400,Math.round(400*h/w)||400);x.drawImage(im,0,0,c.width,c.height);return c};
  const nameOf=f=>f.replace(/\.[^.]+$/,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
  const okHex=h=>/^#[0-9a-f]{6}$/i.test((h||'').trim());
- const parseCsv=t=>t.split(/\r?\n/).slice(1).map(l=>l.split(',')).filter(c=>c.length>1&&c[0].trim()).map(c=>({file:c[0].trim(),brand:(c[1]||'').trim(),color:(c[2]||'').trim()}));
+ const parseCsv=t=>t.split(/\r?\n/).slice(1).map(l=>l.split(',')).filter(c=>c.length>1&&c[0].trim()).map(c=>({file:c[0].trim(),brand:(c[1]||'').trim(),color:(c[2]||'').trim(),icon:(c[4]||'').trim()}));
+ const cands=r=>[...new Set([r.file,r.file.toLowerCase(),r.icon,r.icon.toLowerCase(),r.brand.toLowerCase()+'.svg',r.brand.toLowerCase().replace(/_/g,'-')+'.svg'].filter(Boolean))];   /* servers are case-sensitive: try the likely names */
+ const missing={};
  const tint=(c,hex)=>{const[o,x]=mk(c.width,c.height);x.drawImage(c,0,0);x.globalCompositeOperation='source-in';x.fillStyle=hex;x.fillRect(0,0,o.width,o.height);return o};
  async function raster(f){let u;
   if(/\.svg$/i.test(f.name)){let t=await f.text();const m=t.match(/<svg[^>]*>/i);
@@ -72,10 +74,11 @@ const Brands=(()=>{
   count:()=>api.names().length,
   has:()=>Object.keys(files).length+Object.keys(urls).length>0,
   tinted:n=>!!meta[n],
+  dropped:n=>!!missing[n],
   /* AUTO: read logos/manifest.csv (filename,brand,color_hex,...) and use logos/<filename>. Needs the page served over http(s). */
   async init(){for(const base of DIRS){try{const rs=await fetch(base+'manifest.csv',{cache:'no-store'});if(!rs.ok)continue;
     const rows=parseCsv(await rs.text());let n=0;
-    rows.forEach(r=>{const k=nameOf(r.brand||r.file);if(!k)return;urls[k]=base+r.file;if(okHex(r.color))meta[k]=r.color.trim();n++});
+    rows.forEach(r=>{const k=nameOf(r.brand||r.file);if(!k)return;urls[k]={base,c:cands(r)};if(okHex(r.color))meta[k]=r.color.trim();n++});
     if(n){used=[];return n}}catch(e){}}return 0},
   /* MANUAL fallback: user picks the folder (include manifest.csv to get the colours) */
   async add(list,persist){const ok=[],map={},csv=list.find(f=>/^manifest\.csv$/i.test(f.name));
@@ -84,7 +87,8 @@ const Brands=(()=>{
    if(n){used=[];if(persist)api.save(ok)}return n},
   async image(n){let c=null;
    if(files[n])c=await raster(files[n]);
-   else if(urls[n]){try{const rs=await fetch(urls[n]);if(!rs.ok)throw 0;c=await raster(new File([await rs.blob()],urls[n].split('/').pop()))}catch(e){const im=await loadImg(urls[n]);c=im?ras(im):null}}
+   else if(urls[n]){const u=urls[n];for(const f of u.c){try{const rs=await fetch(u.base+encodeURI(f));if(!rs.ok)continue;c=await raster(new File([await rs.blob()],f));if(c){u.c=[f];break}}catch(e){}}
+    if(!c){delete urls[n];missing[n]=1}}   /* no file found: drop this brand from the list */
    return c&&meta[n]?tint(c,meta[n]):c},                  /* null -> placeholder mark */
   async save(list){try{const d=await db();d.transaction('s','readwrite').objectStore('s').put(list,'logos')}catch(e){}},
   async restore(){try{const d=await db(),fs=await new Promise(res=>{const q=d.transaction('s').objectStore('s').get('logos');q.onsuccess=()=>res(q.result||[]);q.onerror=()=>res([])});return fs.length?api.add(fs,false):0}catch(e){return 0}}
@@ -104,7 +108,7 @@ let ac;function beep(f,d){if(!sv.snd)return;try{ac=ac||new(window.AudioContext||
 
 /* ===== level building ===== */
 async function buildLevel(name,custom){
- let img=custom?customImg:await Brands.image(name);if(!img)img=logo(name);
+ let img=custom?customImg:await Brands.image(name);if(!img&&!custom&&Brands.dropped(name)){used=used.filter(x=>x!==name);return nextBrand()}if(!img)img=logo(name);
  const rws=Math.max(8,Math.min(50,Math.round(COLS*img.height/img.width)));
  const[,x]=mk(COLS,rws);x.drawImage(img,0,0,COLS,rws);const d=x.getImageData(0,0,COLS,rws).data;
  rows=rws;grid=[];let grays=0;const cnt={};
@@ -159,12 +163,14 @@ function pauseGame(){if(mode==='play'||mode==='ready'){pm=mode;mode='pause'}}
 function resumeGame(){hide();if(mode==='pause')mode=pm}
 
 function home(){mode='menu';B=null;back=home;
- show(`<h1>BRAND<br>BALL</h1><p>Smash the pixels. Guess the brand.</p>
+ show(`<h1>BRAND<br>BALL</h1><p>Smash the pixels. Guess the brand.</p>${logosChecked?`<p style="font-size:11px;color:${Brands.has()?'#7dff6a':'#ffe600'}">${Brands.has()?Brands.count()+' logos loaded':'⚠ logos/manifest.csv not found – demo brands. Open via http://, not file://'}</p>`:''}
  <button class="btn alt" data-a="dif">DIFFICULTY: ${sv.diff}</button>
  <button class="btn" data-a="tilt">▶ PLAY WITH TILT</button>
  <button class="btn" data-a="touch">▶ PLAY WITH TOUCH / MOUSE</button>
  <button class="btn alt" data-a="coll">🏆 COLLECTION (${found()}/${Brands.count()})</button>
+ ${logosChecked&&!Brands.has()?`<label class="btn ghost">📁 PICK LOGO FOLDER<input type="file" accept=".svg,.csv,image/*" id="lf" multiple webkitdirectory hidden></label>`:''}
  <label class="btn ghost">＋ PLAY YOUR OWN IMAGE<input type="file" accept="image/*" id="f" hidden></label>`);
+ {const lf=$('#lf');if(lf)lf.onchange=async e=>{await Brands.add([...e.target.files],true);home()}}
  $('#f').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();im.onload=()=>{customImg=im;hide();LV=0;lives=DIF().lives;score=0;buildLevel('YOUR IMAGE',true)};im.src=URL.createObjectURL(f)}}
 const found=()=>Brands.names().filter(n=>sv.done[n]!==undefined).length;
 act.dif=()=>{const k=Object.keys(DIFS);sv.diff=k[(k.indexOf(sv.diff)+1)%3];save();home()};
@@ -194,13 +200,8 @@ function coll(){show(`<h2>COLLECTION ${found()}/${Brands.count()}</h2><p>★ gue
  `</div><button class="btn ghost" data-a="bk">← BACK</button>`)}
 act.coll=coll;act.bk=()=>{back===openPause?openPauseRaw():home()};
 /* first Play: ask for the logo folder once, remember it on this device */
-let wantTilt=false,skipped=0;
-async function gate(t){wantTilt=t;await Brands.ready;if(Brands.has()||skipped){go();return}
- show(`<h2>ONE-TIME SETUP</h2><p>No logos/ folder found next to this page. Choose your logo folder once (with manifest.csv for brand colours). It is remembered on this device, so next time Play starts straight away.</p>
- <label class="btn">📁 CHOOSE LOGO FOLDER<input type="file" accept=".svg,image/*" id="lf" multiple webkitdirectory hidden></label>
- <button class="btn ghost" data-a="skiplogo">SKIP – USE PLACEHOLDERS</button><button class="btn ghost" data-a="home">← BACK</button>`);
- $('#lf').onchange=async e=>{const n=await Brands.add([...e.target.files],true);
-  show(n?`<h2>${n} LOGOS LOADED</h2><button class="btn" data-a="go">▶ START</button>`:`<h2>NO LOGOS FOUND</h2><p>Pick a folder with SVG / PNG files named like nike.svg</p><button class="btn" data-a="home">← BACK</button>`)}}
+let wantTilt=false,skipped=0,logosChecked=false;
+async function gate(t){wantTilt=t;await Brands.ready;if(!Brands.has())msgs.push({t:'logos/manifest.csv not found – demo brands',l:200,c:'#ffe600'});go()}
 function go(){wantTilt?doTilt():doTouch()}
 act.go=go;act.skiplogo=()=>{skipped=1;go()};
 act.late=d=>openGuess(d.n,[0],true);
@@ -325,7 +326,7 @@ addEventListener('resize',fit);fit();
 let last=performance.now();
 (function loop(now){const dt=Math.min(2.5,(now-last)/16.667);last=now;update(dt);draw(now);requestAnimationFrame(loop)})(last);
 home();
-Brands.ready=Brands.init().then(n=>n||Brands.restore()).then(n=>{if(n&&mode==='menu')home();return n});
+Brands.ready=Brands.init().then(n=>n||Brands.restore()).then(n=>{logosChecked=true;if(mode==='menu')home();return n});
 </script>
 </body>
 </html>
