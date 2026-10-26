@@ -210,7 +210,8 @@ act.go=go;act.skiplogo=()=>{skipped=1;go()};
 act.late=d=>openGuess(d.n,[0],true);
 
 /* ===== secret cheat codes (type them in the console) ===== */
-const NEEDG=new Set(['rosebud','motherlode','hesoyam','idkfa','xyzzy','klapaucius','sesame']);
+const NEEDG=new Set(['rosebud','motherlode','hesoyam','idkfa','xyzzy','klapaucius','sesame','blaster','clones']);
+const multiNow=()=>{balls.forEach(b=>{if(b.stuck){b.stuck=false;b.vx=.5*baseSpeed();b.vy=-baseSpeed()}});if(pm==='ready')pm='play';applyPU('M')};   /* launches a waiting ball, then splits it */
 const CODES={
  rosebud:()=>{score+=1000;return'+1000 points'},
  motherlode:()=>{score+=50000;return'+50000 points'},
@@ -219,7 +220,9 @@ const CODES={
  bigfoot:()=>{CH.wide^=1;return'Wide paddle '+(CH.wide?'ON':'OFF')},
  molasses:()=>{CH.slow^=1;return'Slow ball '+(CH.slow?'ON':'OFF')},
  dragonfire:()=>{CH.fire^=1;return'Fire ball '+(CH.fire?'ON':'OFF')},
- idkfa:()=>{timers.wide=timers.slow=timers.fire=timers.gun=30;return'All power-ups for 30s'},
+ blaster:()=>{timers.gun=30;return'Gun for 30s'},
+ clones:()=>{multiNow();return'Multi-ball'},
+ idkfa:()=>{timers.wide=timers.slow=timers.fire=timers.gun=30;multiNow();return'All power-ups'},
  sesame:()=>{guessLock=0;return'Guess unlocked'},
  xyzzy:()=>{if(B.custom)return'Nothing to solve here';solved=true;sv.done[B.name]=1;save();return'Brand solved: '+B.name},
  klapaucius:()=>{if(!B.custom){solved=true;sv.done[B.name]=sv.done[B.name]||1;save()}winLevel(true);return'Level skipped'},
